@@ -150,6 +150,7 @@ class Sender(BasicSender.BasicSender):
                     msg = next_msg
                 ack = self.receive().decode()
                 ack_msg_type, seqno, data, checksum = self.split_packet(ack)
+                # print(ack)
                 # check if the ack is corrupted
                 if not Checksum.validate_checksum(ack):
                     self.log("received corrupt ack: %s" % ack)
@@ -167,7 +168,7 @@ class Sender(BasicSender.BasicSender):
             self.nextSeqNum = self.nextSeqNum + 1
             while self.base < self.nextSeqNum:
                 ack = self.receive().decode()
-                # print('receive ack: %s' % ack)
+                print('receive ack: %s' % ack)
                 ack_msg_type, seqno, data, checksum = self.split_packet(ack)
                 # check if the ack is corrupted
                 if not Checksum.validate_checksum(ack):
@@ -179,20 +180,20 @@ class Sender(BasicSender.BasicSender):
 
     def handle_timeout(self):
         #         重新设置时间，重传base到nextSeqNum的包
-        for i in range(self.base % self.windowSize, self.nextSeqNum % self.windowSize):
-            self.timer[i].cancel()
-            self.timer[i] = threading.Timer(self.TimeoutInterval, self.handle_timeout)
-            self.timer[i].start()
-            packet = self.data[i]
+        for i in range(self.base, self.nextSeqNum):
+            self.timer[i % self.windowSize].cancel()
+            self.timer[i % self.windowSize] = threading.Timer(self.TimeoutInterval, self.handle_timeout)
+            self.timer[i % self.windowSize].start()
+            packet = self.data[i % self.windowSize]
             self.send(packet)
             # print('timeout resend: %s' % packet)
             self.log("resend: %s" % packet)
 
     def handle_timeout_sack(self, num):
-        self.timer[num].cancel()
+        self.timer[num % self.windowSize].cancel()
         # print('timeout resend',num)
-        self.timer[num] = threading.Timer(self.TimeoutInterval, self.handle_timeout_sack, [num])
-        self.timer[num].start()
+        self.timer[num % self.windowSize] = threading.Timer(self.TimeoutInterval, self.handle_timeout_sack, [num])
+        self.timer[num % self.windowSize].start()
         packet = self.data[num % self.windowSize]
         self.send(packet)
         self.log("timeout resend: %s" % packet)
@@ -223,7 +224,7 @@ class Sender(BasicSender.BasicSender):
                     self.handle_dup_ack(int(cum_ack))
                 for i in sack:
                     #       如果sack包中对应的timer还在计时，将sack中的包从timer中删除
-                    # print('not in sequence',i)
+                    print('not in sequence',i)
                     if self.timer[i % self.windowSize] is not None:
                         self.timer[i % self.windowSize].cancel()
                         self.timer[i % self.windowSize] = None
@@ -253,12 +254,13 @@ class Sender(BasicSender.BasicSender):
     def handle_dup_ack(self, ack):
         #     如果收到重复的ack，证明base的包没有收到
         #     重新设置时间，重传base包
-        packet = self.data[self.base % self.windowSize]
+        print('dup ack', ack)
+        packet = self.data[ack % self.windowSize]
         self.send(packet)
-        self.timer[self.base % self.windowSize].cancel()
-        self.timer[self.base % self.windowSize] = threading.Timer(self.TimeoutInterval, self.handle_timeout_sack,
-                                                                  [self.base])
-        self.timer[self.base % self.windowSize].start()
+        self.timer[ack % self.windowSize].cancel()
+        self.timer[ack % self.windowSize] = threading.Timer(self.TimeoutInterval, self.handle_timeout_sack,
+                                                                  [ack])
+        self.timer[ack % self.windowSize].start()
 
     def log(self, msg):
         if self.debug:
